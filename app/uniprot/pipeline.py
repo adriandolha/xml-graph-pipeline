@@ -16,6 +16,7 @@ class NodeType(str, Enum):
     ORGANISM = 'organism'
     REFERENCE = 'reference'
     AUTHOR = 'author'
+    FEATURE = 'feature'
 
 
 class DataMixin:
@@ -79,6 +80,25 @@ class Author(DataMixin):
 
 
 @dataclass
+class Feature(DataMixin):
+    name: str
+    position: str
+    etype: NodeType = NodeType.AUTHOR
+
+    @staticmethod
+    def from_xml(elem: Elem):
+        name = elem.attrib.get('description')
+        location = elem.e.find(f'{elem.url}location')
+        position = 'n/a'
+        if location:
+            pos = location.find(f'{elem.url}positinos') or location.find(f'{elem.url}begin')
+            if pos:
+                position = pos.attrib['position']
+
+        return Feature(name=name, position=position)
+
+
+@dataclass
 class Gene(DataMixin):
     name: str
     etype: NodeType
@@ -101,6 +121,7 @@ class Entry:
     organisms: List[Organism] = field(default_factory=list)
     etype: NodeType = NodeType.ENTRY
     references: List[Reference] = field(default_factory=list)
+    features: List[Feature] = field(default_factory=list)
 
     @staticmethod
     def from_xml(elem: Elem):
@@ -113,7 +134,9 @@ class Entry:
         genes = [c for c in children if c is not None and c.etype == NodeType.GENE]
         organisms = [c for c in children if c is not None and c.etype == NodeType.ORGANISM]
         references = [c for c in children if c is not None and c.etype == NodeType.REFERENCE]
-        return Entry(id=id, proteins=proteins, genes=genes, organisms=organisms, references=references)
+        features = [c for c in children if c is not None and c.etype == NodeType.FEATURE]
+        return Entry(id=id, proteins=proteins, genes=genes, organisms=organisms, references=references,
+                     features=features)
 
     def to_dict(self):
         return asdict(self)
@@ -124,7 +147,9 @@ class Entry:
         genes = [Gene.from_dict(e) for e in data['genes']]
         organisms = [Organism.from_dict(e) for e in data['organisms']]
         references = [Reference.from_dict(e) for e in data['references']]
-        return Entry(id=data.get('id'), proteins=proteins, genes=genes, organisms=organisms, references=references)
+        features = [Feature.from_dict(e) for e in data['features']]
+        return Entry(id=data.get('id'), proteins=proteins, genes=genes, organisms=organisms,
+                     references=references, features=features)
 
     def to_neo(self):
         items = []
@@ -145,6 +170,9 @@ class Entry:
             for author in reference.authors[:2]:
                 anode = Node(NodeType.AUTHOR.value, name=author.name)
                 items.extend([anode, Relationship(rnode, 'HAS_AUTHOR', anode)])
+        for feature in self.features[:2]:
+            fnode = Node(NodeType.FEATURE.value, name=feature.name)
+            items.extend([fnode, Relationship(protein_node, 'HAS_FEATURE', fnode)])
 
         return items
 
@@ -199,6 +227,7 @@ class Elem:
             'organism': Organism,
             'reference': Reference,
             'author': Author,
+            'feature': Feature
         }
         parser = parsers.get(self.tag)
         return parser.from_xml(self) if parser is not None else None
