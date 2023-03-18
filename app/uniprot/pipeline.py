@@ -14,6 +14,8 @@ class NodeType(str, Enum):
     PROTEIN = 'protein'
     GENE = 'gene'
     ORGANISM = 'organism'
+    REFERENCE = 'reference'
+    AUTHOR = 'author'
 
 
 class DataMixin:
@@ -39,6 +41,44 @@ class Protein(DataMixin):
 
 
 @dataclass
+class Reference(DataMixin):
+    id: str
+    authors: List[Author]
+    etype: NodeType = NodeType.REFERENCE
+
+    @staticmethod
+    def from_xml(elem: Elem):
+        id = elem.attrib.get('key')
+        author_list = elem.e.find(f'.//{elem.url}authorList')
+        authors = []
+        if author_list is not None:
+            for c in author_list:
+                authors.append(Author(name=c.attrib.get('name')))
+        else:
+            print('no authors')
+        return Reference(id=id, authors=authors)
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        id = data['id']
+        authors = []
+        for a in data['authors']:
+            authors.append(Author(**a))
+        return Reference(id=id, authors=authors)
+
+
+@dataclass
+class Author(DataMixin):
+    name: str
+    etype: NodeType = NodeType.AUTHOR
+
+    @staticmethod
+    def from_xml(elem: Elem):
+        id = elem.attrib.get('key')
+        return Reference(id=id)
+
+
+@dataclass
 class Gene(DataMixin):
     name: str
     etype: NodeType
@@ -55,18 +95,25 @@ class Gene(DataMixin):
 
 @dataclass
 class Entry:
+    id: str
     proteins: List[Protein] = field(default_factory=list)
     genes: List[Gene] = field(default_factory=list)
     organisms: List[Organism] = field(default_factory=list)
     etype: NodeType = NodeType.ENTRY
+    references: List[Reference] = field(default_factory=list)
 
     @staticmethod
     def from_xml(elem: Elem):
+        id = -1
+        e = elem.find('accession')
+        if e is not None:
+            id = e.text
         children = elem.children()
         proteins = [c for c in children if c is not None and c.etype == NodeType.PROTEIN]
         genes = [c for c in children if c is not None and c.etype == NodeType.GENE]
         organisms = [c for c in children if c is not None and c.etype == NodeType.ORGANISM]
-        return Entry(proteins=proteins, genes=genes, organisms=organisms)
+        references = [c for c in children if c is not None and c.etype == NodeType.REFERENCE]
+        return Entry(id=id, proteins=proteins, genes=genes, organisms=organisms, references=references)
 
     def to_dict(self):
         return asdict(self)
@@ -76,21 +123,28 @@ class Entry:
         proteins = [Protein.from_dict(e) for e in data['proteins']]
         genes = [Gene.from_dict(e) for e in data['genes']]
         organisms = [Organism.from_dict(e) for e in data['organisms']]
-        return Entry(proteins=proteins, genes=genes, organisms=organisms)
+        references = [Reference.from_dict(e) for e in data['references']]
+        return Entry(id=data.get('id'), proteins=proteins, genes=genes, organisms=organisms, references=references)
 
     def to_neo(self):
         items = []
         protein = self.proteins[0]
-        protein_node = Node(NodeType.PROTEIN.value)
+        protein_node = Node(NodeType.PROTEIN.value, id=self.id)
         items.append(protein_node)
         full_name_node = Node('FullName', name=protein.full_name)
         items.extend([full_name_node, Relationship(protein_node, 'HAS_FULL_NAME', full_name_node)])
         for gene in self.genes:
             gene_node = Node(NodeType.GENE.value, name=gene.name)
-            items.extend([gene_node, Relationship(protein_node, 'HAS_GENE', gene_node)])
+            items.extend([gene_node, Relationship(protein_node, 'FROM_GENE', gene_node)])
         for organism in self.organisms:
             organism_node = Node(NodeType.ORGANISM.value, name=organism.name, taxonomy_id=organism.taxonomy_id)
             items.extend([organism_node, Relationship(protein_node, 'IN_ORGANISM', organism_node)])
+        for reference in self.references[:2]:
+            rnode = Node(NodeType.REFERENCE.value, id=reference.id)
+            items.extend([rnode, Relationship(protein_node, 'HAS_REFERENCE', rnode)])
+            for author in reference.authors[:2]:
+                anode = Node(NodeType.AUTHOR.value, name=author.name)
+                items.extend([anode, Relationship(rnode, 'HAS_AUTHOR', anode)])
 
         return items
 
@@ -143,6 +197,8 @@ class Elem:
             'entry': Entry,
             'gene': Gene,
             'organism': Organism,
+            'reference': Reference,
+            'author': Author,
         }
         parser = parsers.get(self.tag)
         return parser.from_xml(self) if parser is not None else None
@@ -151,7 +207,7 @@ class Elem:
         return [Elem(c) for c in self.e]
 
     def children(self) -> List:
-        return [Elem(c).parse() for c in self.e]
+        return [Elem(c).parse() for c in self.e if c is not None]
 
 
 def parse_xml(xml_file_path):
