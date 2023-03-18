@@ -13,6 +13,9 @@ Pipeline description:
 5. Repeat.
 
 This way the pipeline will process data as it comes. You can create multiple branches to scale.
+Main code used by airflow pipeline can be found in app/airprot/pipeline.py.
+Airflow pipeline can be found in airflow/dags/uniprot_pipeline.py
+Also added some basic tests (using pytest) to test the pipeline code.
 
 ## Install
 The makefile script was tested on Mac. Airflow is deployed using pip and neo4j runs from docker.
