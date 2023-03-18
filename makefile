@@ -1,24 +1,3 @@
-# xml-graph-pipeline
-Load UniProt XML data into Neo4j.
-
-Using Airflow to create the data pipeline. Here's the pipeline:
-
-![airflow_pipeline.png](airflow_pipeline.png)
-
-Pipeline description:
-1. Monitor an existing directory (~/uniprot_data) for new files.
-2. Check for the existing data files. Take first 2 files and create 2 branches to run in parallel. Use xcom to push file names.
-3. Parse xml files. Use xcom to take file names pushed in previous step. Generate data model.
-4. Load data from previous step into neo4j. Move xml file in ~/uniprot_data_processed dir.
-5. Repeat.
-
-This way the pipeline will process data as it comes. You can create multiple branches to scale.
-
-## Install
-The makefile script was tested on Mac. Airflow is deployed using pip and neo4j runs from docker.
-
-There's a makefile which is almost completely automated:
-```
 AIRFLOW_REPLICAS=1
 AIRFLOW_VERSION=2.1.4
 AIRFLOW_HOME=$(HOME)/airflow
@@ -67,13 +46,11 @@ airflow-scheduler:
 	export AIRFLOW_HOME=$(AIRFLOW_HOME) && \
 	export AIRFLOW__CORE__SQL_ALCHEMY_CONN=$(AIRFLOW__CORE__SQL_ALCHEMY_CONN)  && \
 	airflow scheduler
-	
-# Start neo4j (no auth) 
+
+# Start neo4j (no auth)
 neo4j:
 	docker run \
       --publish=7474:7474 --publish=7687:7687 \
       --volume=$(NEO_HOME)/data:/data \
       --env=NEO4J_AUTH=none \
       neo4j:latest
-
-```
